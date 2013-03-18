@@ -33,7 +33,6 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "config.h"
 #endif
 
-#include <xorg/inputstr.h>
 #include <linux/input.h>
 #include <linux/types.h>
 
@@ -74,7 +73,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <xorg/mi.h>
 
 //Basic functions
-static int GesturePreInit(InputDriverPtr  drv, InputInfoPtr pInfo, int flags);
+static InputInfoPtr GesturePreInit(InputDriverPtr  drv, InputInfoPtr pInfo, int flags);
 static void GestureUnInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags);
 static pointer GesturePlug(pointer module, pointer options, int *errmaj, int  *errmin);
 static void GestureUnplug(pointer p);
@@ -100,7 +99,6 @@ static inline void GestureEnableDisable();
 void GestureCbEventsGrabbed(Mask *pGrabMask, GestureGrabEventPtr *pGrabEvent);
 void GestureCbEventsSelected(Window win, Mask *pEventMask);
 WindowPtr GestureGetEventsWindow(void);
-static uint32_t GestureTouchFindDDXIDByTouchID(DeviceIntPtr device, uint32_t touchid);
 
 //Enqueued event handlers and enabler/disabler
 static ErrorStatus GestureEnableEventHandler(InputInfoPtr pInfo);
@@ -108,9 +106,9 @@ static ErrorStatus GestureDisableEventHandler(void);
 static CARD32 GestureTimerHandler(OsTimerPtr timer, CARD32 time, pointer arg);
 static CARD32 GestureEventTimerHandler(OsTimerPtr timer, CARD32 time, pointer arg);
 void GestureHandleMTSyncEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device);
-void GestureHandleTouchBeginEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device);
-void GestureHandleTouchUpdateEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device);
-void GestureHandleTouchEndEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device);
+void GestureHandleButtonPressEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device);
+void GestureHandleButtonReleaseEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device);
+void GestureHandleMotionEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device);
 
 //Gesture recognizer helper
 static Bool PointInBorderSize(WindowPtr pWin, int x, int y);
@@ -131,7 +129,7 @@ void GestureHandleGesture_PinchRotation(int num_of_fingers, double zoom, double 
 void GestureHandleGesture_Hold(int num_fingers, int cx, int cy, Time holdtime, int kinds);
 void GestureHandleGesture_TapNHold(int num_fingers, int cx, int cy, Time interval, Time holdtime, int kinds);
 void GestureHandleGesture_Pan(int num_fingers, short int dx, short int dy, int direction, int distance, Time duration, int kinds);
-void GestureRecognize(int type, InternalEvent *ev, DeviceIntPtr device, int idx);
+void GestureRecognize(int type, InternalEvent *ev, DeviceIntPtr device);
 ErrorStatus GestureFlushOrDrop(void);
 
 #ifdef HAVE_PROPERTIES
@@ -642,7 +640,7 @@ GestureRecognize_GroupPinchRotation(int type, InternalEvent *ev, DeviceIntPtr de
 
 	switch( type )
 	{
-		case ET_TouchBegin:
+		case ET_ButtonPress:
 			g_pGesture->fingers[idx].flags |= PressFlagPinchRotation;
 
 			if( g_pGesture->num_pressed < 2 )
@@ -688,7 +686,7 @@ GestureRecognize_GroupPinchRotation(int type, InternalEvent *ev, DeviceIntPtr de
 #endif//__DETAIL_DEBUG__
 			break;
 
-		case ET_TouchUpdate:
+		case ET_Motion:
 			if( !(g_pGesture->fingers[idx].flags & PressFlagPinchRotation) )
 				break;
 
@@ -801,7 +799,7 @@ gesture_begin_handle:
 			}
 			break;
 
-		case ET_TouchEnd:
+		case ET_ButtonRelease:
 			if( state != GestureEnd && num_pressed >= 2)
 			{
 #ifdef __DETAIL_DEBUG__
@@ -838,7 +836,7 @@ cleanup_pinchrotation:
 
 	if( g_pGesture->filter_mask == GESTURE_FILTER_MASK_ALL )
 	{
-#ifdef __DETAIL_DEBUG__
+#if 1//def __DETAIL_DEBUG__
 		ErrorF("[GroupPinchRotation][cleanup] GestureFlushOrDrop() !\n");
 #endif//__DETAIL_DEBUG__
 
@@ -874,7 +872,7 @@ GestureRecognize_GroupFlick(int type, InternalEvent *ev, DeviceIntPtr device, in
 
 	switch( type )
 	{
-		case ET_TouchBegin:
+		case ET_ButtonPress:
 			g_pGesture->fingers[idx].flags |= PressFlagFlick;
 
 			if( g_pGesture->num_pressed < 2 )
@@ -894,7 +892,7 @@ GestureRecognize_GroupFlick(int type, InternalEvent *ev, DeviceIntPtr device, in
 #endif//__DETAIL_DEBUG__
 			break;
 
-		case ET_TouchUpdate:
+		case ET_Motion:
 			if( !(g_pGesture->fingers[idx].flags & PressFlagFlick ) )
 				break;
 
@@ -936,7 +934,7 @@ GestureRecognize_GroupFlick(int type, InternalEvent *ev, DeviceIntPtr device, in
 			}
 			break;
 
-		case ET_TouchEnd:
+		case ET_ButtonRelease:
 			if( g_pGesture->num_pressed )
 				break;
 
@@ -1037,7 +1035,7 @@ GestureRecognize_GroupPan(int type, InternalEvent *ev, DeviceIntPtr device, int 
 
 	switch( type )
 	{
-		case ET_TouchBegin:
+		case ET_ButtonPress:
 			g_pGesture->fingers[idx].flags |= PressFlagPan;
 
 			if( g_pGesture->num_pressed < 2 )
@@ -1070,7 +1068,7 @@ GestureRecognize_GroupPan(int type, InternalEvent *ev, DeviceIntPtr device, int 
 #endif//__DETAIL_DEBUG__
 			break;
 
-		case ET_TouchUpdate:
+		case ET_Motion:
 			if( !(g_pGesture->fingers[idx].flags & PressFlagPan ) )
 				break;
 
@@ -1106,7 +1104,6 @@ GestureRecognize_GroupPan(int type, InternalEvent *ev, DeviceIntPtr device, int 
 
 				cx = AREA_CENTER_X(&g_pGesture->area.extents);
 				cy = AREA_CENTER_Y(&g_pGesture->area.extents);
-
 #ifdef __DETAIL_DEBUG__
 				ErrorF("[GroupPan][M] cx=%d, prev_cx=%d, diff=%d\n", cx, prev_cx, ABS(cx-prev_cx));
 				ErrorF("[GroupPan][M] cy=%d, prev_cy=%d, diff=%d\n", cy, prev_cy, ABS(cy-prev_cy));
@@ -1149,7 +1146,7 @@ GestureRecognize_GroupPan(int type, InternalEvent *ev, DeviceIntPtr device, int 
 			}
 			break;
 
-		case ET_TouchEnd:
+		case ET_ButtonRelease:
 			if( state != GestureEnd && num_pressed >= 2)
 			{
 #ifdef __DETAIL_DEBUG__
@@ -1237,7 +1234,7 @@ GestureRecognize_GroupTap(int type, InternalEvent *ev, DeviceIntPtr device, int 
 				if( num_pressed )
 				{
 #ifdef __DETAIL_DEBUG__
-					ErrorF("[GroupTap][Timer][state=1] Tap time expired !(num_pressed=%d, tap_repeat=%d)\n", num_pressed, tap_repeat);
+					ErrorF("[GroupTap][Timer][state=1] Tap time expired !(num_pressed=%d, tap_repeat=%d)\n", tap_repeat, num_pressed, tap_repeat);
 #endif//__DETAIL_DEBUG__
 					state = 0;
 					goto cleanup_tap;
@@ -1268,7 +1265,7 @@ GestureRecognize_GroupTap(int type, InternalEvent *ev, DeviceIntPtr device, int 
 
 	switch( type )
 	{
-		case ET_TouchBegin:
+		case ET_ButtonPress:
 			g_pGesture->fingers[idx].flags |= PressFlagTap;
 
 			if( g_pGesture->num_pressed < 2 )
@@ -1298,7 +1295,7 @@ GestureRecognize_GroupTap(int type, InternalEvent *ev, DeviceIntPtr device, int 
 #endif//__DETAIL_DEBUG__
 			break;
 
-		case ET_TouchUpdate:
+		case ET_Motion:
 			if( !(g_pGesture->fingers[idx].flags & PressFlagTap ) )
 				break;
 
@@ -1343,7 +1340,7 @@ GestureRecognize_GroupTap(int type, InternalEvent *ev, DeviceIntPtr device, int 
 			}
 			break;
 
-		case ET_TouchEnd:
+		case ET_ButtonRelease:
 			if( g_pGesture->num_pressed )
 				break;
 
@@ -1499,7 +1496,7 @@ GestureRecognize_GroupTapNHold(int type, InternalEvent *ev, DeviceIntPtr device,
 
 	switch( type )
 	{
-		case ET_TouchBegin:
+		case ET_ButtonPress:
 			g_pGesture->fingers[idx].flags |= PressFlagTapNHold;
 
 			if( g_pGesture->num_pressed < 2 )
@@ -1547,7 +1544,7 @@ GestureRecognize_GroupTapNHold(int type, InternalEvent *ev, DeviceIntPtr device,
 #endif//__DETAIL_DEBUG__
 			break;
 
-		case ET_TouchUpdate:
+		case ET_Motion:
 			if( !(g_pGesture->fingers[idx].flags & PressFlagTapNHold ) )
 				break;
 
@@ -1599,7 +1596,7 @@ GestureRecognize_GroupTapNHold(int type, InternalEvent *ev, DeviceIntPtr device,
 			}
 			break;
 
-		case ET_TouchEnd:
+		case ET_ButtonRelease:
 			if( state != GestureEnd && num_pressed >= 2)
 			{
 #ifdef __DETAIL_DEBUG__
@@ -1736,7 +1733,7 @@ void GestureRecognize_GroupHold(int type, InternalEvent *ev, DeviceIntPtr device
 
 	switch( type )
 	{
-		case ET_TouchBegin:
+		case ET_ButtonPress:
 			g_pGesture->fingers[idx].flags |= PressFlagHold;
 
 			if( g_pGesture->num_pressed < 2 )
@@ -1770,7 +1767,7 @@ void GestureRecognize_GroupHold(int type, InternalEvent *ev, DeviceIntPtr device
 #endif//__DETAIL_DEBUG__
 			break;
 
-		case ET_TouchUpdate:
+		case ET_Motion:
 			if( !(g_pGesture->fingers[idx].flags & PressFlagHold ) )
 				break;
 
@@ -1818,7 +1815,7 @@ void GestureRecognize_GroupHold(int type, InternalEvent *ev, DeviceIntPtr device
 			}
 			break;
 
-		case ET_TouchEnd:
+		case ET_ButtonRelease:
 			if( state != GestureEnd && num_pressed >= 2)
 			{
 #ifdef __DETAIL_DEBUG__
@@ -1932,7 +1929,7 @@ GestureGetEventsWindow(void)
 		g_pGesture->lastSelectedMask = g_pGesture->eventMask;
 	}
 
-	if((!g_pGesture->eventMask) && (!g_pGesture->grabMask))
+	if( !g_pGesture->eventMask && !g_pGesture->grabMask)
 	{
 #ifdef __DETAIL_DEBUG__
 		ErrorF("[X11][GestureGetEventsWindow] No grabbed events or no events were selected for window(0x%x) !\n", pWin->drawable.id);
@@ -2032,70 +2029,32 @@ GestureSingleFingerTimerHandler(OsTimerPtr timer, CARD32 time, pointer arg)
 	return 0;
 }
 
-static uint32_t
-GestureTouchFindDDXIDByTouchID(DeviceIntPtr device, uint32_t touchid)
-{
-	int i;
-	DDXTouchPointInfoPtr ti;
-
-	for( i = 0 ; i < g_pGesture->num_touches ; i++ )
-	{
-#ifdef __DETAIL_DEBUG__
-		ErrorF("[X11][GestureTouchFindDDXIDByTouchID][check existence] fingers[%d].touchid=%d, touchid=%d\n", i, g_pGesture->fingers[i].touchid, touchid);
-#endif//__DETAIL_DEBUG__
-
-		if(g_pGesture->fingers[i].touchid == touchid)
-		{
-#ifdef __DETAIL_DEBUG__
-			ErrorF("[X11][GestureTouchFindDDXIDByTouchID][exist] ddx_id=%d was found !\n", i);
-#endif//__DETAIL_DEBUG__
-
-			return (uint32_t)i;
-		}
-	}
-
-	for( i = 0 ; i < device->last.num_touches ; i++)
-	{
-		ti = &device->last.touches[i];
-
-#ifdef __DETAIL_DEBUG__
-		ErrorF("[X11][GestureTouchFindDDXIDByTouchID][alloc new] i=%d, ti->client_id=%d, touchid=%d, ti->ddx_id=%d, ti->active=%d\n", i, ti->client_id, touchid, ti->ddx_id, ti->active);
-#endif//__DETAIL_DEBUG__
-
-		if(ti->client_id == touchid)
-		{
-#ifdef __DETAIL_DEBUG__
-			ErrorF("[X11][GestureTouchFindDDXIDByTouchID][new] ddx_id=%d was found !\n", ti->ddx_id);
-#endif//__DETAIL_DEBUG__
-
-			g_pGesture->fingers[ti->ddx_id].touchid = touchid;
-			return ti->ddx_id;
-		}
-	}
-
-	return (uint32_t)-1;
-}
-
 void
-GestureRecognize(int type, InternalEvent *ev, DeviceIntPtr device, int idx)
+GestureRecognize(int type, InternalEvent *ev, DeviceIntPtr device)
 {
 	int i;
 	static OsTimerPtr single_finger_timer = NULL;
+	int idx = -1;
 
-#ifdef __DETAIL_DEBUG__
-	ErrorF("[X11][GestureRecognize] ev->any.type=%d, type=%d, device->id=%d\n", ev->any.type, type, device->id);
-#endif//__DETAIL_DEBUG__
-
-	if((PROPAGATE_EVENTS == g_pGesture->ehtype) || (device->id != g_pGesture->first_fingerid))
+	if( PROPAGATE_EVENTS == g_pGesture->ehtype ||
+		device->id < g_pGesture->first_fingerid )
 		return;
 
-#ifdef __DETAIL_DEBUG__
-	ErrorF("[X11][GestureRecognize] idx=%d\n", idx);
-#endif//__DETAIL_DEBUG__
+	for( i = 0 ; i < g_pGesture->num_mt_devices ; i++ )
+	{
+		if( device->id == g_pGesture->mt_devices[i]->id )
+		{
+			idx = i;
+			break;
+		}
+	}
+
+	if( idx < 0 )
+		return;
 
 	switch( type )
 	{
-		case ET_TouchBegin:
+		case ET_ButtonPress:
 			if( idx == 0 )
 				g_pGesture->event_sum[0] = BTN_PRESSED;
 			g_pGesture->fingers[idx].ptime = ev->any.time;
@@ -2112,8 +2071,8 @@ GestureRecognize(int type, InternalEvent *ev, DeviceIntPtr device, int idx)
 				TimerCancel(single_finger_timer);
 			}
 
-			if( g_pGesture->num_pressed > g_pGesture->num_touches )
-				g_pGesture->num_pressed = g_pGesture->num_touches;
+			if( g_pGesture->num_pressed > g_pGesture->num_mt_devices )
+				g_pGesture->num_pressed = g_pGesture->num_mt_devices;
 
 			if( !g_pGesture->pTempWin || g_pGesture->num_pressed != g_pGesture->inc_num_pressed )
 			{
@@ -2156,7 +2115,7 @@ GestureRecognize(int type, InternalEvent *ev, DeviceIntPtr device, int idx)
 			}
 			break;
 
-		case ET_TouchUpdate:
+		case ET_Motion:
 			if( !g_pGesture->fingers[idx].ptime )
 				return;
 
@@ -2207,7 +2166,7 @@ GestureRecognize(int type, InternalEvent *ev, DeviceIntPtr device, int idx)
 			}
 			break;
 
-		case ET_TouchEnd:
+		case ET_ButtonRelease:
 			g_pGesture->fingers[idx].rtime = ev->any.time;
 			g_pGesture->fingers[idx].rx = ev->device_event.root_x;
 			g_pGesture->fingers[idx].ry = ev->device_event.root_y;
@@ -2338,11 +2297,8 @@ GestureHandleMTSyncEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device)
 		g_pGesture->recognized_gesture = 0;
 		g_pGesture->num_pressed = 0;
 
-		for( i=0 ; i < g_pGesture->num_touches ; i++ )
-		{
+		for( i=0 ; i < g_pGesture->num_mt_devices ; i++ )
 			g_pGesture->fingers[i].ptime = 0;
-			g_pGesture->fingers[i].touchid = -1;
-		}
 	}
 	else if( MTOUCH_FRAME_SYNC_END == ev->any_event.sync )
 	{
@@ -2350,37 +2306,26 @@ GestureHandleMTSyncEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device)
 	}
 }
 
-void GestureHandleTouchBeginEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device)
+void
+GestureHandleButtonPressEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device)
 {
-	int idx = -1;
-	int touchid;
 #ifdef __DEBUG_EVENT_HANDLER__
-	ErrorF("[X11][GestureHandleTouchBeginEvent] devid=%d, touchid=%d, time:%d cur:%d\n", device->id, ev->device_event.touchid, ev->any.time, GetTimeInMillis());
+	ErrorF("[X11][GestureHandleButtonPEvent] devid=%d time:%d cur:%d\n", device->id, ev->any.time, GetTimeInMillis());
 #endif//__DEBUG_EVENT_HANDLER__
 
 	switch( g_pGesture->ehtype )
 	{
 		case KEEP_EVENTS:
-			if( !g_pGesture->num_touches )
-			{
-				device->public.processInputProc(ev, device);
-				return;
-			}
-
 			if( ERROR_INVALPTR == GestureEnqueueEvent(screen_num, ev,  device) )
 			{
 				GestureControl(g_pGesture->this_device, DEVICE_OFF);
 				return;
 			}
 
-			if(device->id != g_pGesture->first_fingerid)
-				return;
-
-			touchid = ev->device_event.touchid;
-			idx = GestureTouchFindDDXIDByTouchID(device, touchid);
-
-			if( idx >= 0 )
-				GestureRecognize(ET_TouchBegin, ev, device, idx);
+			if( g_pGesture->num_mt_devices )
+				GestureRecognize(ET_ButtonPress, ev, device);
+			else
+				device->public.processInputProc(ev, device);
 			break;
 
 		case PROPAGATE_EVENTS:
@@ -2388,11 +2333,7 @@ void GestureHandleTouchBeginEvent(int screen_num, InternalEvent *ev, DeviceIntPt
 			break;
 
 		case IGNORE_EVENTS:
-			touchid = ev->device_event.touchid;
-			idx = GestureTouchFindDDXIDByTouchID(device, touchid);
-
-			if( idx >= 0 )
-				GestureRecognize(ET_TouchBegin, ev, device, idx);
+			GestureRecognize(ET_ButtonPress, ev, device);
 			break;
 
 		default:
@@ -2400,37 +2341,26 @@ void GestureHandleTouchBeginEvent(int screen_num, InternalEvent *ev, DeviceIntPt
 	}
 }
 
-void GestureHandleTouchUpdateEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device)
+void
+GestureHandleMotionEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device)
 {
-	int idx = -1;
-	int touchid;
 #ifdef __DEBUG_EVENT_HANDLER__
-	ErrorF("[X11][GestureHandleTouchUpdateEvent] devid=%d, touchid=%d, time:%d cur:%d\n", device->id, ev->device_event.touchid, ev->any.time, GetTimeInMillis());
+	ErrorF("[X11][GestureHandleMotionEvent] devid=%d time:%d cur:%d\n", device->id, ev->any.time, GetTimeInMillis());
 #endif//__DEBUG_EVENT_HANDLER__
 
 	switch( g_pGesture->ehtype )
 	{
 		case KEEP_EVENTS:
-			if( !g_pGesture->num_touches )
-			{
-				device->public.processInputProc(ev, device);
-				return;
-			}
-
 			if( ERROR_INVALPTR == GestureEnqueueEvent(screen_num, ev,  device) )
 			{
 				GestureControl(g_pGesture->this_device, DEVICE_OFF);
 				return;
 			}
 
-			if(device->id != g_pGesture->first_fingerid)
-				return;
-
-			touchid = ev->device_event.touchid;
-			idx = GestureTouchFindDDXIDByTouchID(device, touchid);
-
-			if( idx >= 0 )
-				GestureRecognize(ET_TouchUpdate, ev, device, idx);
+			if( g_pGesture->num_mt_devices )
+				GestureRecognize(ET_Motion, ev, device);
+			else
+				device->public.processInputProc(ev, device);
 			break;
 
 		case PROPAGATE_EVENTS:
@@ -2438,52 +2368,35 @@ void GestureHandleTouchUpdateEvent(int screen_num, InternalEvent *ev, DeviceIntP
 			break;
 
 		case IGNORE_EVENTS:
-			touchid = ev->device_event.touchid;
-			idx = GestureTouchFindDDXIDByTouchID(device, touchid);
-
-			if( idx >= 0 )
-				GestureRecognize(ET_TouchUpdate, ev, device, idx);
+			GestureRecognize(ET_Motion, ev, device);
 			break;
 
 		default:
 			break;
 	}
+
 }
 
-void GestureHandleTouchEndEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device)
+void
+GestureHandleButtonReleaseEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device)
 {
-	int idx = -1;
-	int touchid;
 #ifdef __DEBUG_EVENT_HANDLER__
-	ErrorF("[X11][GestureHandleTouchEndEvent] devid=%d, touchid=%d, time:%d cur:%d\n", device->id, ev->device_event.touchid, ev->any.time, GetTimeInMillis());
+	ErrorF("[X11][GestureHandleButtonREvent] devid=%d time:%d cur:%d\n", device->id, ev->any.time, GetTimeInMillis());
 #endif//__DEBUG_EVENT_HANDLER__
 
 	switch( g_pGesture->ehtype )
 	{
 		case KEEP_EVENTS:
-			if( !g_pGesture->num_touches )
-			{
-				device->public.processInputProc(ev, device);
-				return;
-			}
-
 			if( ERROR_INVALPTR == GestureEnqueueEvent(screen_num, ev,  device) )
 			{
 				GestureControl(g_pGesture->this_device, DEVICE_OFF);
 				return;
 			}
 
-			if(device->id != g_pGesture->first_fingerid)
-				return;
-
-			touchid = ev->device_event.touchid;
-			idx = GestureTouchFindDDXIDByTouchID(device, touchid);
-
-			if( idx >= 0 )
-			{
-				GestureRecognize(ET_TouchEnd, ev, device, idx);
-				g_pGesture->fingers[idx].touchid = -1;
-			}
+			if( g_pGesture->num_mt_devices )
+				GestureRecognize(ET_ButtonRelease, ev, device);
+			else
+				device->public.processInputProc(ev, device);
 			break;
 
 		case PROPAGATE_EVENTS:
@@ -2491,11 +2404,7 @@ void GestureHandleTouchEndEvent(int screen_num, InternalEvent *ev, DeviceIntPtr 
 			break;
 
 		case IGNORE_EVENTS:
-			touchid = ev->device_event.touchid;
-			idx = GestureTouchFindDDXIDByTouchID(device, touchid);
-
-			if( idx >= 0 )
-				GestureRecognize(ET_TouchEnd, ev, device, idx);
+			GestureRecognize(ET_ButtonRelease, ev, device);
 			break;
 
 		default:
@@ -2515,6 +2424,14 @@ GestureEnableEventHandler(InputInfoPtr pInfo)
 	{
 		ErrorF("[X11][GestureEnableEventHandler] Failed on GestureInstallResourceStateHooks() !\n");
 		return ERROR_ABNORMAL;
+	}
+
+	res = GestureSetMaxNumberOfFingers((int)MAX_MT_DEVICES);
+
+	if( !res )
+	{
+		ErrorF("[X11][GestureEnableEventHandler] Failed on GestureSetMaxNumberOfFingers(%d) !\n", (int)MAX_MT_DEVICES);
+		goto failed;
 	}
 
 	res = GestureRegisterCallbacks(GestureCbEventsGrabbed, GestureCbEventsSelected);
@@ -2547,9 +2464,9 @@ GestureDisableEventHandler(void)
 {
 	ErrorStatus err = ERROR_NONE;
 
-	mieqSetHandler(ET_TouchBegin, NULL);
-	mieqSetHandler(ET_TouchUpdate, NULL);
-	mieqSetHandler(ET_TouchEnd, NULL);
+	mieqSetHandler(ET_ButtonPress, NULL);
+	mieqSetHandler(ET_ButtonRelease, NULL);
+	mieqSetHandler(ET_Motion, NULL);
 	mieqSetHandler(ET_MTSync, NULL);
 
 	err = GestureFiniEQ();
@@ -2571,7 +2488,7 @@ GestureTimerHandler(OsTimerPtr timer, CARD32 time, pointer arg)
 	InputInfoPtr pInfo = (InputInfoPtr)arg;
 	GestureDevicePtr pGesture = pInfo->private;
 
-	Bool res;
+	int idx = 0;
 	DeviceIntPtr dev;
 	for( dev = inputInfo.pointer ; dev; dev = dev->next )
 	{
@@ -2589,13 +2506,17 @@ GestureTimerHandler(OsTimerPtr timer, CARD32 time, pointer arg)
 			continue;
 		}
 
-		if(IsPointerDevice(dev) && dev->touch)
+		if(IsPointerDevice(dev))
 		{
-			pGesture->num_touches = dev->touch->num_touches + 1;
-			pGesture->first_fingerid = dev->id;
-#ifdef __DETAIL_DEBUG__
-			ErrorF("[X11][GestureTimerHandler] num_touches = %d, first_fingerid=%d\n", pGesture->num_touches, pGesture->first_fingerid);
-#endif//__DETAIL_DEBUG__
+			if( idx >= MAX_MT_DEVICES )
+			{
+				ErrorF("[X11][GestureTimerHandler] Number of mt device is over MAX_MT_DEVICES(%d) !\n",
+					MAX_MT_DEVICES);
+				continue;
+			}
+			pGesture->mt_devices[idx] = dev;
+			ErrorF("[X11][GestureTimerHandler][id:%d] MT device[%d] name=%s\n", dev->id, idx, pGesture->mt_devices[idx]->name);
+			idx++;
 		}
 	}
 
@@ -2603,39 +2524,25 @@ GestureTimerHandler(OsTimerPtr timer, CARD32 time, pointer arg)
 	{
 		ErrorF("[X11][GestureTimerHandler] Failed to get info of master pointer or XTest pointer !\n");
 		pGesture->device_setting_timer = TimerSet(pGesture->device_setting_timer, 0, 0, NULL, NULL);
-		pGesture->num_touches = 0;
+		pGesture->num_mt_devices = 0;
 
 		return 0;
 	}
 
 	pGesture->device_setting_timer = TimerSet(pGesture->device_setting_timer, 0, 0, NULL, NULL);
+	pGesture->num_mt_devices = idx;
 
-	if( !pGesture->num_touches )
+	if( !pGesture->num_mt_devices )
 	{
 		ErrorF("[X11][GestureTimerHandler] Failed to mt device information !\n");
 		pGesture->device_setting_timer = TimerSet(pGesture->device_setting_timer, 0, 0, NULL, NULL);
-		pGesture->first_fingerid = -1;
+		pGesture->num_mt_devices = 0;
+    	pGesture->first_fingerid = -1;
 		return 0;
 	}
 
-	res = GestureSetMaxNumberOfFingers((int)pGesture->num_touches);
-
-	if( !res )
-	{
-		ErrorF("[X11][GestureTimerHandler] Failed on GestureSetMaxNumberOfFingers(%d) !\n", (int)pGesture->num_touches);
-		goto failed;
-	}
-
-	pGesture->finger_rects = (pixman_region16_t *)calloc(sizeof(pixman_region16_t), pGesture->num_touches);
-	pGesture->fingers = (TouchStatus *)calloc(sizeof(TouchStatus), pGesture->num_touches);
-	pGesture->event_sum = (int *)calloc(sizeof(int), pGesture->num_touches);
-
-	if( !pGesture->finger_rects || !pGesture->fingers || !pGesture->event_sum)
-	{
-		ErrorF("[X11][GestureTimerHandler] Failed to allocate memory for finger information\n");
-		goto failed;
-	}
-
+	pGesture->first_fingerid = pGesture->mt_devices[0]->id;
+	memset(pGesture->fingers, 0, sizeof(TouchStatus)*pGesture->num_mt_devices);
 	pGesture->pRootWin = RootWindow(pGesture->master_pointer);
 	g_pGesture->pTempWin = NULL;
 	g_pGesture->inc_num_pressed = 0;
@@ -2645,9 +2552,9 @@ GestureTimerHandler(OsTimerPtr timer, CARD32 time, pointer arg)
 		goto failed;
 	}
 
-	mieqSetHandler(ET_TouchBegin, GestureHandleTouchBeginEvent);
-	mieqSetHandler(ET_TouchEnd, GestureHandleTouchEndEvent);
-	mieqSetHandler(ET_TouchUpdate, GestureHandleTouchUpdateEvent);
+	mieqSetHandler(ET_ButtonPress, GestureHandleButtonPressEvent);
+	mieqSetHandler(ET_ButtonRelease, GestureHandleButtonReleaseEvent);
+	mieqSetHandler(ET_Motion, GestureHandleMotionEvent);
 
 	if( pGesture->is_active )
 		mieqSetHandler(ET_MTSync, GestureHandleMTSyncEvent);
@@ -2656,7 +2563,6 @@ GestureTimerHandler(OsTimerPtr timer, CARD32 time, pointer arg)
 
 failed:
 
-	pGesture->num_touches = 0;
 	GestureUninstallResourceStateHooks();
 	GestureUnsetMaxNumberOfFingers();
 
@@ -2707,7 +2613,7 @@ GestureRegionsInit(void)
 
 	pixman_region_init(&g_pGesture->area);
 
-	for( i = 0 ; i < g_pGesture->num_touches; i++ )
+	for( i = 0 ; i < MAX_MT_DEVICES ; i++ )
 	{
 		pixman_region_init_rect (&g_pGesture->finger_rects[i], 0, 0, FINGER_WIDTH_2T, FINGER_HEIGHT_2T);
 	}
@@ -2805,7 +2711,7 @@ GestureEnqueueEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device)
 
 	if( tail >= GESTURE_EQ_SIZE )
 	{
-		ErrorF("[X11][GestureEnqueueEvent] Gesture EQ is full...Force Gesture Flush \n");
+		ErrorF("[X11][GestureEnqueueEvent] Gesture EQ is full !\n");
 		printk("[X11][GestureEnqueueEvent] Gesture EQ is full...Force Gesture Flush !\n");
 		GestureEventsFlush();
 		return ERROR_EQFULL;
@@ -2814,16 +2720,16 @@ GestureEnqueueEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device)
 #ifdef __DETAIL_DEBUG__
 	switch( ev->any.type )
 	{
-		case ET_TouchBegin:
-			ErrorF("[X11][GestureEnqueueEvent] ET_TouchBegin (id:%d)\n", device->id);
+		case ET_ButtonPress:
+			ErrorF("[X11][GestureEnqueueEvent] ET_ButtonPress (id:%d)\n", device->id);
 			break;
 
-		case ET_TouchEnd:
-			ErrorF("[X11][GestureEnqueueEvent] ET_TouchEnd (id:%d)\n", device->id);
+		case ET_ButtonRelease:
+			ErrorF("[X11][GestureEnqueueEvent] ET_ButtonRelease (id:%d)\n", device->id);
 			break;
 
-		case ET_TouchUpdate:
-			ErrorF("[X11][GestureEnqueueEvent] ET_TouchUpdate (id:%d)\n", device->id);
+		case ET_Motion:
+			ErrorF("[X11][GestureEnqueueEvent] ET_Motion (id:%d)\n", device->id);
 			break;
 	}
 #endif//__DETAIL_DEBUG__
@@ -2858,7 +2764,7 @@ GestureEventsFlush(void)
 		device->public.processInputProc(g_pGesture->EQ[i].event, device);
 	}
 
-	for( i = 0 ; i < g_pGesture->num_touches; i++ )
+	for( i = 0 ; i < MAX_MT_DEVICES ; i++ )
 		g_pGesture->event_sum[i] = 0;
 
 	g_pGesture->headEQ = g_pGesture->tailEQ = 0;//Free EQ
@@ -2942,7 +2848,7 @@ GestureUnplug(pointer p)
 {
 }
 
-static int
+static InputInfoPtr
 GesturePreInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 {
     int rc = BadAlloc;
@@ -2967,7 +2873,6 @@ GesturePreInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
     pGesture->is_active = xf86SetIntOption(pInfo->options, "Activate", 0);
     pGesture->gestureWin = None;
     pGesture->lastSelectedWin = None;
-    pGesture->num_touches = GESTURE_MAX_TOUCH;
     g_pGesture->grabMask = g_pGesture->eventMask = 0;
 
     xf86Msg(X_INFO, "%s: Using device %s.\n", pInfo->name, pGesture->device);
@@ -2977,6 +2882,7 @@ GesturePreInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
     xf86ProcessCommonOptions(pInfo, pInfo->options);
 
     pInfo->fd = -1;
+
     return Success;
 
 error:
@@ -3017,7 +2923,7 @@ GestureControl(DeviceIntPtr device, int what)
 
             device->public.on = TRUE;
 	     pGesture->this_device = device;
-	     GestureSetMaxNumberOfFingers((int)pGesture->num_touches);
+	     pGesture->num_mt_devices = 0;
 	     if( ERROR_ABNORMAL == GestureEnableEventHandler(pInfo) )
 	     	goto device_off;
             break;

@@ -46,7 +46,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #define CLIENT_BITS(id) ((id) & RESOURCE_CLIENT_MASK)
 #define CLIENT_ID(id) ((int)(CLIENT_BITS(id) >> CLIENTOFFSET))
 
-#define GESTURE_MAX_TOUCH	sizeof(unsigned short)
+#define MAX_MT_DEVICES		3
 #define GESTURE_EQ_SIZE	256
 
 #define GESTURE_RECOGNIZER_ONOFF	"GESTURE_RECOGNIZER_ONOFF"
@@ -160,10 +160,6 @@ enum EventType
     ET_ButtonPress,
     ET_ButtonRelease,
     ET_Motion,
-    ET_TouchBegin,
-    ET_TouchUpdate,
-    ET_TouchEnd,
-    ET_TouchOwnership,
     /*
     ...
     */
@@ -352,7 +348,6 @@ typedef struct _tagTouchStatus
 	Time ptime;	//press time
 	Time mtime;	//motion time
 	Time rtime;	//current/previous release time
-	uint32_t touchid;//touch client_id
 } TouchStatus;
 
 typedef struct _GestureDeviceRec
@@ -365,7 +360,7 @@ typedef struct _GestureDeviceRec
 
 	WindowPtr pRootWin;
 	Window gestureWin;
-	unsigned short num_touches;
+	int num_mt_devices;
 
 	Mask grabMask;
 	Mask eventMask;
@@ -379,20 +374,21 @@ typedef struct _GestureDeviceRec
 	int tailEQ;
 
 	pixman_region16_t area;
-	pixman_region16_t *finger_rects;
+	pixman_region16_t finger_rects[MAX_MT_DEVICES];
 
 	WindowPtr pTempWin;
 	int inc_num_pressed;
 
 	int first_fingerid;
 	int num_pressed;
-	TouchStatus *fingers;
+	TouchStatus fingers[MAX_MT_DEVICES];
 
-	int *event_sum;
+	int event_sum[MAX_MT_DEVICES];
 	uint32_t recognized_gesture;
 	uint32_t filter_mask;
 
 	DeviceIntPtr this_device;
+	DeviceIntPtr mt_devices[MAX_MT_DEVICES];
 	DeviceIntPtr master_pointer;
 	DeviceIntPtr xtest_pointer;
 } GestureDeviceRec, *GestureDevicePtr ;

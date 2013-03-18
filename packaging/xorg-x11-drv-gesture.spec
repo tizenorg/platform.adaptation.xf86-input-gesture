@@ -2,7 +2,7 @@
 Name:	xorg-x11-drv-gesture
 Summary:    X.Org X server -- Xserver gesture driver
 Version: 0.1.2
-Release:    6
+Release:    7
 Group:      System/X Hardware Support
 License:    MIT
 Source0:    %{name}-%{version}.tar.gz
