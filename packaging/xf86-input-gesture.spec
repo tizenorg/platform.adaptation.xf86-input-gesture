@@ -1,5 +1,5 @@
 #sbs-git:slp/pkgs/xorg/driver/xserver-xorg-input-gesture xorg-x11-drv-gesture 0.1.0 fb1092a8ea453d658b38d5c28e67a58462d7c931
-Name:	xorg-x11-drv-gesture
+Name:	xf86-input-gesture
 Summary:    X.Org X server -- Xserver gesture driver
 Version: 0.1.2
 Release:    7
