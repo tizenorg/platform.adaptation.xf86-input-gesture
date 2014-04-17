@@ -111,7 +111,6 @@ void GestureHandleButtonReleaseEvent(int screen_num, InternalEvent *ev, DeviceIn
 void GestureHandleMotionEvent(int screen_num, InternalEvent *ev, DeviceIntPtr device);
 
 //Gesture recognizer helper
-static Bool PointInBorderSize(WindowPtr pWin, int x, int y);
 static WindowPtr GestureWindowOnXY(int x, int y);
 Bool GestureHasFingerEventMask(int eventType, int num_finger);
 static double get_angle(int x1, int y1, int x2, int y2);
@@ -192,16 +191,6 @@ printk(const char* fmt, ...)
 	vfprintf(fp, fmt, argptr);
 	fflush(fp);
 	va_end(argptr);
-}
-
-static Bool
-PointInBorderSize(WindowPtr pWin, int x, int y)
-{
-    BoxRec box;
-    if( pixman_region_contains_point (&pWin->borderSize, x, y, &box) )
-	return TRUE;
-
-    return FALSE;
 }
 
 static WindowPtr
