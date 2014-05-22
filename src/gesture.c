@@ -1994,7 +1994,7 @@ GestureEventTimerHandler(OsTimerPtr timer, CARD32 time, pointer arg)
 			ErrorF("[GestureEventTimerHandler] unknown event_type (=%d)\n", event_type);
 #endif//__DETAIL_DEBUG__
 			if(timer)
-				ErrorF("[GestureEventTimerHandler] timer=%x\n", (unsigned int)timer);
+				ErrorF("[GestureEventTimerHandler] timer=%p\n", timer);
 	}
 
 	return 0;
