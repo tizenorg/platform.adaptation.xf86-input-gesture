@@ -1,3 +1,5 @@
+%bcond_with x
+
 #sbs-git:slp/pkgs/xorg/driver/xserver-xorg-input-gesture xorg-x11-drv-gesture 0.1.0 fb1092a8ea453d658b38d5c28e67a58462d7c931
 Name:	xf86-input-gesture
 Summary:    X.Org X server -- Xserver gesture driver
@@ -12,6 +14,10 @@ BuildRequires:  pkgconfig(xproto)
 BuildRequires:  pkgconfig(inputproto)
 BuildRequires:  pkgconfig(resourceproto)
 BuildRequires:  pkgconfig(xorg-macros)
+
+%if !%{with x}
+ExclusiveArch:
+%endif
 
 %description
  This package provides the driver for recognizing gesture(s) using button
