@@ -46,7 +46,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #define CLIENT_BITS(id) ((id) & RESOURCE_CLIENT_MASK)
 #define CLIENT_ID(id) ((int)(CLIENT_BITS(id) >> CLIENTOFFSET))
 
-#define MAX_MT_DEVICES		3
+#define MAX_MT_DEVICES		10
 #define GESTURE_EQ_SIZE	256
 
 #define GESTURE_RECOGNIZER_ONOFF	"GESTURE_RECOGNIZER_ONOFF"
@@ -160,12 +160,26 @@ enum EventType
     ET_ButtonPress,
     ET_ButtonRelease,
     ET_Motion,
+    ET_TouchBegin,
+    ET_TouchUpdate,
+    ET_TouchEnd,
+    ET_TouchOwnership,
     /*
     ...
     */
     ET_MTSync = 0x7E,
     ET_Internal = 0xFF /* First byte */
 };
+#ifdef _SUPPORT_EVDEVMULTITOUCH_DRV_
+#define GESTURE_TOUCH_PRESS ET_ButtonPress
+#define GESTURE_TOUCH_MOTION ET_Motion
+#define GESTURE_TOUCH_RELEASE ET_ButtonRelease
+#else //_SUPPORT_EVDEVMULTITOUCH_DRV_
+#define GESTURE_TOUCH_PRESS ET_TouchBegin
+#define GESTURE_TOUCH_MOTION ET_TouchUpdate
+#define GESTURE_TOUCH_RELEASE ET_TouchOwnership
+#endif //_SUPPORT_EVDEVMULTITOUCH_DRV_
+
 
 struct _DeviceEvent {
     unsigned char header; /**< Always ET_Internal */
@@ -337,6 +351,9 @@ enum
 typedef struct _tagTouchStatus
 {
 	int status;//One of BTN_RELEASED, BTN_PRESSED and BTN_MOVING
+#ifndef _SUPPORT_EVDEVMULTITOUCH_DRV_
+	int touchid;
+#endif //_SUPPORT_EVDEVMULTITOUCH_DRV_
 	uint32_t flags;
 
 	int px;		//press x
@@ -374,21 +391,38 @@ typedef struct _GestureDeviceRec
 	int tailEQ;
 
 	pixman_region16_t area;
+#ifdef _SUPPORT_EVDEVMULTITOUCH_DRV_
 	pixman_region16_t finger_rects[MAX_MT_DEVICES];
+#else //_SUPPORT_EVDEVMULTITOUCH_DRV_
+	pixman_region16_t *finger_rects;
+#endif //_SUPPORT_EVDEVMULTITOUCH_DRV_
 
 	WindowPtr pTempWin;
 	int inc_num_pressed;
 
 	int first_fingerid;
 	int num_pressed;
+#ifdef _SUPPORT_EVDEVMULTITOUCH_DRV_
 	TouchStatus fingers[MAX_MT_DEVICES];
+#else //_SUPPORT_EVDEVMULTITOUCH_DRV_
+	TouchStatus *fingers;
+	int total_pressed;
+#endif //_SUPPORT_EVDEVMULTITOUCH_DRV_
 
+#ifdef _SUPPORT_EVDEVMULTITOUCH_DRV_
 	int event_sum[MAX_MT_DEVICES];
+#else //_SUPPORT_EVDEVMULTITOUCH_DRV_
+	int *event_sum;
+#endif //_SUPPORT_EVDEVMULTITOUCH_DRV_
 	uint32_t recognized_gesture;
 	uint32_t filter_mask;
 
 	DeviceIntPtr this_device;
+#ifdef _SUPPORT_EVDEVMULTITOUCH_DRV_
 	DeviceIntPtr mt_devices[MAX_MT_DEVICES];
+#else //_SUPPORT_EVDEVMULTITOUCH_DRV_
+	DeviceIntPtr mt_devices;
+#endif //_SUPPORT_EVDEVMULTITOUCH_DRV_
 	DeviceIntPtr master_pointer;
 	DeviceIntPtr xtest_pointer;
 } GestureDeviceRec, *GestureDevicePtr ;

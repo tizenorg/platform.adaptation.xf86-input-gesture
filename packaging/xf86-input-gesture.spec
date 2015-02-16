@@ -39,6 +39,7 @@ xorg-x11-drv-gesture development files
 %build
 
 %autogen -ivf
+export CFLAGS="$CFLAGS -D_SUPPORT_EVDEVMULTITOUCH_DRV_"
 %configure --prefix=/usr --mandir=/usr/share/man --infodir=/usr/share/info CFLAGS="$CFLAGS" LDFLAGS="$LDFLAGS"
 
 make %{?jobs:-j%jobs}
